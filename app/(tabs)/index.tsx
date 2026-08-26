@@ -1,98 +1,252 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, SafeAreaView, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { formatPeso, listPaluwagansForUser, type PaluwaganRecord } from '../../services/paluwagan';
+import { listPayoutsForPaluwagan } from '../../services/payouts';
+import { reportError } from '../../lib/errors';
+import { useAuthStore } from '../../stores/auth-store';
 
-export default function HomeScreen() {
+type DashboardSummary = {
+  totalGroups: number;
+  totalContribution: number;
+  nextPayout: {
+    paluwaganName: string;
+    recipientName: string;
+    amount: number;
+    scheduledFor: string;
+  } | null;
+  recentGroups: PaluwaganRecord[];
+};
+
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
-
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View className="flex-1 rounded-[18px] bg-white p-3">
+      <Text className="text-[10px] font-extrabold uppercase tracking-[1.2px] text-[#647475]">{label}</Text>
+      <Text className="mt-2 text-lg font-extrabold text-[#173334]">{value}</Text>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
+export default function HomeTab() {
+  const { session, isReady } = useAuthStore();
+  const user = session?.user;
+  const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState<DashboardSummary>({
+    totalGroups: 0,
+    totalContribution: 0,
+    nextPayout: null,
+    recentGroups: [],
+  });
+
+  useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const currentUser = user;
+    let active = true;
+
+    async function loadDashboard() {
+      setLoading(true);
+
+      try {
+        const paluwagans = await listPaluwagansForUser(currentUser.id, undefined, currentUser.email ?? undefined);
+
+        const scheduledPayouts = (
+          await Promise.all(
+            paluwagans.map(async (paluwagan) => {
+              const payouts = await listPayoutsForPaluwagan(paluwagan.id);
+              return payouts
+                .filter((payout) => payout.status === 'scheduled')
+                .map((payout) => ({
+                  paluwaganName: paluwagan.name,
+                  recipientName: payout.recipient_name ?? 'Member',
+                  amount: Number(payout.amount ?? 0),
+                  scheduledFor: payout.scheduled_for,
+                }));
+            }),
+          )
+        ).flat();
+
+        scheduledPayouts.sort(
+          (left, right) => new Date(left.scheduledFor).getTime() - new Date(right.scheduledFor).getTime(),
+        );
+
+        const nextPayout = scheduledPayouts[0] ?? null;
+
+        if (active) {
+          setSummary({
+            totalGroups: paluwagans.length,
+            totalContribution: paluwagans.reduce((total, paluwagan) => total + Number(paluwagan.contribution_amount ?? 0), 0),
+            nextPayout,
+            recentGroups: paluwagans.slice(0, 3),
+          });
+        }
+      } catch (error) {
+        reportError(error, { screen: 'home-dashboard' });
+        if (active) {
+          setSummary({
+            totalGroups: 0,
+            totalContribution: 0,
+            nextPayout: null,
+            recentGroups: [],
+          });
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  if (!isReady || !session || !user) {
+    return (
+      <View className="flex-1 items-center justify-center bg-[#F6F5F0]">
+        <ActivityIndicator size="large" color="#0B7A75" />
+      </View>
+    );
+  }
+
+  const authenticatedUser = user;
+
+  const greetingName =
+    authenticatedUser.user_metadata?.full_name ??
+    authenticatedUser.user_metadata?.name ??
+    authenticatedUser.user_metadata?.display_name ??
+    authenticatedUser.email?.split('@')[0] ??
+    'there';
+
+  return (
+    <SafeAreaView className="flex-1 bg-[#F6F5F0]">
+      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
+        <View className="mb-5 flex-row items-center justify-between">
+          <View className="flex-1 pr-4">
+            <Text className="text-[11px] font-extrabold uppercase tracking-[1.3px] text-[#0B7A75]">Dashboard</Text>
+            <Text className="mt-2 text-[28px] font-extrabold leading-[36px] text-[#173334]">
+              Hi, {greetingName}
+            </Text>
+          </View>
+
+          <View className="h-12 w-12 items-center justify-center rounded-[18px] bg-[#0B7A75]">
+            <Text style={{ color: '#FFFFFF', fontSize: 26, fontWeight: '800' }}>₱</Text>
+          </View>
+        </View>
+
+        {loading ? (
+          <View className="mt-6 items-center justify-center py-10">
+            <ActivityIndicator size="large" color="#0B7A75" />
+          </View>
+        ) : (
+          <>
+            <View className="rounded-[22px] bg-[#E8F4F2] p-4">
+              <Text className="text-[11px] font-extrabold uppercase tracking-[1.2px] text-[#647475]">
+                At a glance
+              </Text>
+
+              <View className="mt-4 flex-row gap-3">
+                <StatCard label="Groups" value={String(summary.totalGroups)} />
+                <StatCard label="Contribution" value={formatPeso(summary.totalContribution)} />
+              </View>
+            </View>
+
+            <View className="mt-5 rounded-[22px] border border-[#D7E7E5] bg-white p-4">
+              <Text className="text-[11px] font-extrabold uppercase tracking-[1.2px] text-[#647475]">Next payout</Text>
+
+              {summary.nextPayout ? (
+                <>
+                  <Text className="mt-2 text-lg font-extrabold text-[#173334]">{summary.nextPayout.paluwaganName}</Text>
+                  <Text className="mt-1 text-sm text-[#647475]">Recipient: {summary.nextPayout.recipientName}</Text>
+                  <Text className="mt-2 text-xl font-extrabold text-[#173334]">
+                    {formatPeso(summary.nextPayout.amount)}
+                  </Text>
+                  <Text className="mt-1 text-sm text-[#647475]">
+                    {new Date(`${summary.nextPayout.scheduledFor}T12:00:00`).toLocaleDateString('en-PH', {
+                      dateStyle: 'long',
+                    })}
+                  </Text>
+                </>
+              ) : (
+                <Text className="mt-2 text-base font-semibold text-[#647475]">No upcoming payout scheduled.</Text>
+              )}
+            </View>
+
+            <View className="mt-5 rounded-[22px] bg-white p-4">
+              <View className="mb-3 flex-row items-center justify-between">
+                <Text className="text-[11px] font-extrabold uppercase tracking-[1.2px] text-[#647475]">
+                  Recent groups
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => router.push('/(tabs)/paluwagans')}
+                  className="rounded-xl bg-[#E8F4F2] px-2.5 py-1.5"
+                >
+                  <Text className="text-[10px] font-extrabold uppercase tracking-[1px] text-[#0B7A75]">
+                    View all
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {summary.recentGroups.length === 0 ? (
+                <View className="rounded-[18px] border border-dashed border-[#C9D8D5] bg-[#F8F9F7] p-4">
+                  <Text className="text-base font-extrabold text-[#173334]">No Paluwagans yet</Text>
+                  <Text className="mt-1 text-sm text-[#647475]">
+                    Create your first group to start tracking contributions and payouts.
+                  </Text>
+                </View>
+              ) : (
+                <View className="gap-2">
+                  {summary.recentGroups.map((paluwagan) => (
+                    <TouchableOpacity
+                      key={paluwagan.id}
+                      activeOpacity={0.8}
+                      onPress={() => router.push({ pathname: '/paluwagan/[id]', params: { id: paluwagan.id } })}
+                      className="rounded-[18px] border border-[#D7E7E5] bg-[#F8F9F7] p-3"
+                    >
+                      <View className="flex-row items-center justify-between">
+                        <Text className="text-base font-extrabold text-[#173334]">{paluwagan.name}</Text>
+                        <Text className="text-[10px] font-extrabold uppercase tracking-[1px] text-[#0B7A75]">
+                          {paluwagan.status}
+                        </Text>
+                      </View>
+
+                      <Text className="mt-1 text-sm text-[#647475]">
+                        {formatPeso(paluwagan.contribution_amount)} · {paluwagan.frequency}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        <View className="mt-6 gap-3">
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => router.push('/paluwagan/create')}
+            className="min-h-[52px] items-center justify-center rounded-2xl bg-[#0B7A75]"
+          >
+            <Text className="text-base font-extrabold text-white">Create Paluwagan</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => router.push('/(tabs)/paluwagans')}
+            className="min-h-[52px] items-center justify-center rounded-2xl border border-[#D7E7E5] bg-white"
+          >
+            <Text className="text-base font-extrabold text-[#173334]">View my Paluwagans</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}

@@ -1,50 +1,318 @@
-# Welcome to your Expo app 👋
+# Paluwagan Manager
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A mobile app for organizing and tracking informal Filipino group savings
+("Paluwagan") — members, contribution schedules, payment status, payout
+order, and proof of payment.
 
-## Get started
+> This app is a record-keeping tool, not a wallet. It never holds,
+> transfers, or processes funds. Payments happen outside the app (for
+> example: GCash, Maya, cash, bank transfer), and the app only records the
+> payment status and proof that the user reports.
 
-1. Install dependencies
+See [CLAUDE.md](CLAUDE.md) for the product spec and system rules, and
+[AGENTS.md](AGENTS.md) for Expo-specific constraints.
 
-   ```bash
-   npm install
-   ```
+## Tech stack
 
-2. Start the app
+- Expo + Expo Router
+- React Native + TypeScript
+- NativeWind
+- Supabase Auth + PostgreSQL + Storage
+- Zustand
+- React Hook Form + Zod
+- Sentry for crash monitoring
+- PostHog for product analytics
 
-   ```bash
-   npx expo start
-   ```
+## Prerequisites
 
-In the output, you'll find options to open the app in a
+- Node.js 20+
+- npm
+- A Supabase project
+- A Google Cloud project for Google Sign-In
+- Xcode + iOS simulator, or Android Studio + emulator
+- Optional: Sentry project and PostHog project
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## 1. Clone and install
 
 ```bash
-npm run reset-project
+git clone https://github.com/<your-username>/paluwagan.git
+cd paluwagan
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 2. Create a Supabase project
 
-## Learn more
+1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard).
+2. Open **Project Settings → API** and copy the **Project URL** and the
+   **anon / publishable** key.
+3. Keep the **service role** key secret and never expose it to the mobile app.
 
-To learn more about developing your project with Expo, look at the following resources:
+## 3. Apply the database schema
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+The SQL migrations live in [supabase/migrations](supabase/migrations/):
 
-## Join the community
+- [20260101000000_init_schema.sql](supabase/migrations/20260101000000_init_schema.sql)
+- [20260827000000_tighten_contribution_visibility.sql](supabase/migrations/20260827000000_tighten_contribution_visibility.sql)
 
-Join our community of developers creating universal apps.
+Apply them with the Supabase CLI:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+npx supabase login
+npx supabase link --project-ref <your-project-ref>
+npx supabase db push
+```
+
+Or run them manually in the Supabase SQL Editor in order.
+
+## 4. Configure the storage bucket
+
+The app stores member payment proof uploads in the `payment-proofs` bucket.
+
+In Supabase:
+
+- create a bucket named `payment-proofs`
+- mark it as private
+- add storage policies so users can upload their own proof and organizers can view proofs for their own Paluwagan
+
+Do not allow public access to payment proof uploads.
+
+## 5. Deploy the delete-account Edge Function
+
+The account deletion feature uses Supabase Edge Functions. The code is in
+[supabase/functions/delete-account](supabase/functions/delete-account).
+
+Deploy it:
+
+```bash
+npx supabase functions deploy delete-account
+```
+
+This function should be used for self-service account deletion and should not
+be bypassed by client-side code.
+
+## 6. Configure authentication
+
+### Email/password auth
+
+This works out of the box with Supabase Auth.
+
+### Google Sign-In
+
+1. In the Google Cloud Console, create an OAuth client ID.
+2. In Supabase → **Authentication → Providers → Google**, enable Google.
+3. Use this redirect URI for the OAuth callback:
+
+```text
+https://<your-project-ref>.supabase.co/auth/v1/callback
+```
+
+4. Also allow the app callback scheme in your Supabase URL configuration:
+
+```text
+paluwagan://auth/callback
+```
+
+## 7. Create your local environment file
+
+Create a `.env.local` file in the project root:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<your-anon-or-publishable-key>
+
+# Optional: Sentry (runtime crash/error reporting)
+EXPO_PUBLIC_SENTRY_DSN=https://<key>@o<org-id>.ingest.sentry.io/<project-id>
+
+# Optional: PostHog analytics
+EXPO_PUBLIC_POSTHOG_API_KEY=phc_<your-project-api-key>
+EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+> Do not commit `.env.local`. Never put a Supabase service-role key inside the
+> mobile app.
+
+## 8. Sentry setup
+
+This app uses `@sentry/react-native` for runtime error monitoring.
+
+If you want Sentry enabled in local development:
+
+```bash
+EXPO_PUBLIC_SENTRY_DSN=https://<key>@o<org-id>.ingest.sentry.io/<project-id>
+```
+
+If the native build is failing during symbol upload, disable the auto-upload step
+for local testing:
+
+```bash
+SENTRY_DISABLE_AUTO_UPLOAD=true npx expo run:ios
+```
+
+This does not disable Sentry runtime error capture; it only disables automatic
+build-time upload of debug symbols.
+
+## 9. PostHog setup
+
+This app uses `posthog-react-native` for analytics and screen tracking.
+
+Add your PostHog project key to `.env.local`:
+
+```bash
+EXPO_PUBLIC_POSTHOG_API_KEY=phc_<your-project-api-key>
+EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+If the API key is not set, analytics are safely disabled.
+
+### PostHog session replay note
+
+If you want to enable session replay, you must run the app as a native build,
+not in Expo Go.
+
+That means:
+
+```bash
+npx expo prebuild --clean
+cd ios && pod install && cd ..
+npx expo run:ios
+```
+
+For local quick testing without replay, keep replay disabled in
+[lib/analytics.ts](lib/analytics.ts).
+
+## 10. Run the app
+
+### Quick start with Expo Go
+
+```bash
+npx expo start
+```
+
+Then:
+
+- press `i` for iOS simulator
+- press `a` for Android emulator
+- or scan the QR code in Expo Go
+
+### Native iOS build for PostHog replay / testing more like production
+
+```bash
+npx expo prebuild --clean
+cd ios && pod install && cd ..
+npx expo run:ios
+```
+
+Or choose a simulator explicitly:
+
+```bash
+npx expo run:ios --simulator="iPhone 16 Pro"
+```
+
+## Project structure
+
+```text
+app/            Expo Router screens
+components/     Reusable UI grouped by feature
+lib/            Supabase, auth helpers, validation, Sentry/PostHog wrappers
+services/       Business logic and data access
+stores/         Zustand store(s)
+supabase/       Migrations and Edge Functions
+```
+
+## Scripts
+
+```bash
+npm start
+npm run android
+npm run ios
+npm run web
+npm run lint
+```
+
+## Notes for contributors
+
+- Keep business logic out of UI components.
+- Prefer Supabase service/query functions over direct query logic inside screens.
+- Keep env values in `.env.local` and do not commit them.
+- Prefer small, focused changes.
+- Do not disable Row Level Security for convenience.
+
+## Why this app exists
+
+Paluwagan Manager is built for Filipino savings circles that still depend on
+messaging apps, notebooks, or spreadsheets to track who paid, who is behind,
+and who should receive the next payout.
+
+The app is designed to make that process clearer, faster, and easier to audit,
+without turning the experience into a financial wallet or money-moving system.
+
+## Core features
+
+- Create and manage a Paluwagan group
+- Add and invite members
+- Track contribution schedules and payment status
+- View next payout and payout history
+- Upload payment proof screenshots
+- Review proof uploads and approve or reject them
+- View dashboard summaries for collected and outstanding amounts
+- Manage organizer and member roles
+
+## Who it is for
+
+- Group organizers managing informal savings groups
+- Members who want to track payment status and payout position
+- People who want a simpler alternative to spreadsheets and chat threads
+
+## App flow overview
+
+A typical user journey looks like this:
+
+1. Sign in with Google or email/password
+2. Create or join a Paluwagan group
+3. View the contribution schedule and membership list
+4. Record or review contribution payments
+5. Review payout order and payout schedule
+6. Upload payment proof screenshots
+7. Track outstanding and completed contributions on the dashboard
+
+This app is designed to replace spreadsheet tracking for informal savings groups,
+not to handle money movement itself.
+
+## GitHub-ready open source checklist
+
+Before publishing this repository publicly, make sure the following are ready:
+
+- [ ] Create a new GitHub repository and push the code
+- [ ] Confirm all environment values are in `.env.local` and not committed
+- [ ] Add Supabase project URL + publishable key to the public setup instructions
+- [ ] Add Google OAuth instructions for sign-in and redirect URLs
+- [ ] Add migration instructions for the database schema
+- [ ] Add storage bucket setup instructions for `payment-proofs`
+- [ ] Add PostHog API key instructions for analytics
+- [ ] Add Sentry DSN instructions and local note about `SENTRY_DISABLE_AUTO_UPLOAD=true`
+- [ ] Add a license file if you plan to open source the app publicly
+- [ ] Review any private keys, tokens, or secrets before the first push
+
+## Screenshots / demo assets
+
+Add screenshots here before publishing to GitHub so people can quickly understand the app:
+
+- Login screen
+- Dashboard / overview
+- Paluwagan detail view
+- Contribution tracking screen
+- Payment proof upload screen
+- Payout schedule screen
+
+Example placeholder:
+
+```text
+/screenshots/01-login.png
+/screenshots/02-dashboard.png
+/screenshots/03-paluwagan-detail.png
+/screenshots/04-contributions.png
+```
+
+## License
+
+No license has been chosen yet for this project.
