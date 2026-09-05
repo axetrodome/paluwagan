@@ -12,6 +12,25 @@ order, and proof of payment.
 See [CLAUDE.md](CLAUDE.md) for the product spec and system rules, and
 [AGENTS.md](AGENTS.md) for Expo-specific constraints.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/dashboard.png" width="200" alt="Dashboard"/><br/><sub>Dashboard</sub></td>
+    <td align="center"><img src="docs/screenshots/groups.png" width="200" alt="Groups list"/><br/><sub>Groups (active/archive)</sub></td>
+    <td align="center"><img src="docs/screenshots/paluwagan-detail.png" width="200" alt="Paluwagan detail"/><br/><sub>Paluwagan detail</sub></td>
+    <td align="center"><img src="docs/screenshots/contributions.png" width="200" alt="Contribution tracking"/><br/><sub>Contribution tracking</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/add-member.png" width="200" alt="Add member"/><br/><sub>Add member</sub></td>
+    <td align="center"><img src="docs/screenshots/members-actions.png" width="200" alt="Member management"/><br/><sub>Member management</sub></td>
+    <td align="center"><img src="docs/screenshots/payouts.png" width="200" alt="Payout schedule"/><br/><sub>Payout schedule</sub></td>
+    <td></td>
+  </tr>
+</table>
+
+> Screens show test data from a local development build, not a real Paluwagan group.
+
 ## Tech stack
 
 - Expo + Expo Router
@@ -292,26 +311,6 @@ Before publishing this repository publicly, make sure the following are ready:
 - [ ] Add Sentry DSN instructions and local note about `SENTRY_DISABLE_AUTO_UPLOAD=true`
 - [ ] Add a license file if you plan to open source the app publicly
 - [ ] Review any private keys, tokens, or secrets before the first push
-
-## Screenshots / demo assets
-
-Add screenshots here before publishing to GitHub so people can quickly understand the app:
-
-- Login screen
-- Dashboard / overview
-- Paluwagan detail view
-- Contribution tracking screen
-- Payment proof upload screen
-- Payout schedule screen
-
-Example placeholder:
-
-```text
-/screenshots/01-login.png
-/screenshots/02-dashboard.png
-/screenshots/03-paluwagan-detail.png
-/screenshots/04-contributions.png
-```
 
 ## License
 
