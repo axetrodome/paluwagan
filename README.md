@@ -183,21 +183,27 @@ EXPO_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
 
 If the API key is not set, analytics are safely disabled.
 
-### PostHog session replay note
+### PostHog and Expo Go / `npm start`
 
-If you want to enable session replay, you must run the app as a native build,
-not in Expo Go.
+PostHog's session replay is backed by a native module
+(`posthog-react-native-session-replay`) that Expo Go and non-rebuilt dev
+clients cannot load. Session replay is disabled by default in
+[lib/analytics.ts](lib/analytics.ts) (`enableSessionReplay: false`) so plain
+analytics events still work fine with `npm start`.
 
-That means:
+If you still see PostHog native plugin errors while running with
+`npm start` / Expo Go, leave `EXPO_PUBLIC_POSTHOG_API_KEY` unset in
+`.env.local` for that session — analytics safely no-op when the key is
+missing, and this avoids the native module entirely.
+
+Only set the key (and re-enable `enableSessionReplay` if you want replay) when
+testing via a native build:
 
 ```bash
 npx expo prebuild --clean
 cd ios && pod install && cd ..
 npx expo run:ios
 ```
-
-For local quick testing without replay, keep replay disabled in
-[lib/analytics.ts](lib/analytics.ts).
 
 ## 10. Run the app
 
@@ -212,6 +218,10 @@ Then:
 - press `i` for iOS simulator
 - press `a` for Android emulator
 - or scan the QR code in Expo Go
+
+> If PostHog logs native plugin errors while running this way, leave
+> `EXPO_PUBLIC_POSTHOG_API_KEY` unset in `.env.local` — see
+> [PostHog and Expo Go / `npm start`](#posthog-and-expo-go--npm-start).
 
 ### Native iOS build for PostHog replay / testing more like production
 
