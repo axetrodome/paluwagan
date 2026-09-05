@@ -6,10 +6,11 @@ const apiKey = process.env.EXPO_PUBLIC_POSTHOG_API_KEY;
 const host = process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com';
 
 // No-op when EXPO_PUBLIC_POSTHOG_API_KEY isn't set, so this is safe for local/open-source setups.
+// Session replay disabled for now (requires a native build, breaks in Expo Go / non-rebuilt dev client).
 export const posthog = apiKey
   ? new PostHog(apiKey, {
       host,
-      enableSessionReplay: true,
+      enableSessionReplay: false,
     })
   : null;
 
